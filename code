@@ -1,0 +1,360 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[1]:
+
+
+get_ipython().system('pip3 install opencv-python')
+get_ipython().system('pip install keras')
+
+
+# In[76]:
+
+
+get_ipython().system('pip install tensorflow')
+
+
+# In[4]:
+
+
+from sklearn.model_selection import train_test_split
+from keras.layers import *
+from keras.models import Sequential
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.callbacks import Callback, ModelCheckpoint, LearningRateScheduler, TensorBoard, EarlyStopping, ReduceLROnPlateau
+from tensorflow.keras.utils import plot_model
+import tensorflow as tf
+from sklearn.metrics import classification_report, confusion_matrix
+import seaborn as sns
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+import graphviz
+import pydot
+import os
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from PIL import Image as im
+
+
+# In[5]:
+
+
+#set the values
+ds = "Movie"
+img_width = 224
+img_height = 224
+
+
+# In[6]:
+
+
+cm_matrix = "cm_vgg19_" + ds + ".png"
+model_arch = "model_arch_vgg19_" + ds + ".png"
+graph = "graph_vgg19_" + ds + ".png"
+model_pkl_file = "vgg19_model_" + ds + ".pkl"
+
+
+# In[7]:
+
+
+# set path in which you want to save images
+path = r'D:\PHD Research Work\code'  
+# changing directory to given path
+os.chdir(path)
+
+
+# In[8]:
+
+
+#NonViolnceVideos_Dir = r"D:\PHD Research Work\code\NonViolenceVideos"
+#ViolnceVideos_Dir = r"D:\PHD Research Work\code\ViolenceVideos"
+#NonViolnceVideos_Dir = r"D:\PHD Research Work\code\Real Life Violence Dataset\NonViolence"
+#ViolnceVideos_Dir = r"D:\PHD Research Work\code\Real Life Violence Dataset\Violence"
+# NonViolnceVideos_Dir = r"D:\PHD Research Work\code\HockeyFights\NonViolence"
+# ViolnceVideos_Dir = r"D:\PHD Research Work\code\HockeyFights\Violence"
+NonViolnceVideos_Dir = r"D:\PHD Research Work\code\Movie\NonViolence"
+ViolnceVideos_Dir = r"D:\PHD Research Work\code\Movie\Violence"
+list_files_NonViolence = []
+list_files_Violence = []
+# Retrieve the list of all the video files present in the Class Directory.
+NonViolence_files_names_list = os.listdir(NonViolnceVideos_Dir)
+Violence_files_names_list = os.listdir(ViolnceVideos_Dir)
+for files in NonViolence_files_names_list:
+    list_files_NonViolence.append(NonViolnceVideos_Dir + '\\' + files)
+for files in Violence_files_names_list:
+    list_files_Violence.append(ViolnceVideos_Dir + '\\' + files)
+print(NonViolnceVideos_Dir)
+
+
+# In[9]:
+
+
+Class_Labels = ["NonViolence","Violence"]
+X_Frames = []
+Y_Labels = []
+
+
+# In[10]:
+
+
+def extract_frames_from_video(file_path, category):
+    frames = []
+    labels = []
+    video = cv2.VideoCapture(file_path)
+    success, image = video.read()    
+    count = 0   
+    success = True
+    while success:      
+        success, image = video.read()
+        if count%30 == 0 and success:
+            img1 = cv2.resize(image, (img_width, img_height), interpolation = cv2.INTER_AREA)
+            X_Frames.append(img1)
+            Y_Labels.append(Class_Labels.index(category))
+        count+=1
+    #return frames, labels
+
+
+# In[11]:
+
+
+for video_file in list_files_NonViolence[0:100]:
+    extract_frames_from_video(video_file, Class_Labels[0])
+    #X_Frames.append(frames)
+    #Y_Labels.append(labels)
+for video_file in list_files_Violence[0:100]:
+    extract_frames_from_video(video_file, Class_Labels[1])
+    #X_Frames.append(frames)
+    #Y_Labels.append(labels)
+
+
+# In[12]:
+
+
+features = np.asarray(X_Frames)
+labels = np.array(Y_Labels)
+
+
+# In[13]:
+
+
+features = (features / 255.).astype(np.float16)
+
+
+# In[14]:
+
+
+# set path in which you want to save images
+path = r'D:\PHD Research Work\code\vgg19'  
+# changing directory to given path
+os.chdir(path)
+
+
+# In[15]:
+
+
+np.save("features_" + ds + ".npy", features)
+np.save("labels_" + ds + ".npy", labels)
+
+
+# In[16]:
+
+
+print(np.shape(features))
+print(np.shape(labels))
+
+
+# In[17]:
+
+
+visible_frame = (features*255).astype('uint8')
+plt.imshow(visible_frame[300])
+
+
+# In[18]:
+
+
+# Split the Data into Train ( 80% ) and Test Set ( 20% ).
+features_train, features_test, labels_train, labels_test = train_test_split(features, labels, test_size = 0.2,
+                                                                            shuffle = True, random_state = 42)
+
+
+# In[19]:
+
+
+print(features_train.shape,labels_train.shape )
+print(features_test.shape, labels_test.shape)
+
+
+# In[20]:
+
+
+from keras.applications.vgg19 import VGG19
+
+
+# In[21]:
+
+
+#load vgg19 weights
+layers = tf.keras.layers
+models = tf.keras.models
+weight = r"D:\PHD Research Work\code\vgg19_weights_tf_dim_ordering_tf_kernels_notop.h5"
+vgg19 = tf.keras.applications.vgg19.VGG19
+vg19 = vgg19(include_top = False, weights = weight, input_shape = (224,224,3))
+for layer in vg19.layers:
+    layer.trainable = False
+model = models.Sequential()
+model.add(vg19)
+model.add(Flatten())
+model.add(Dropout(0.3))
+#model.add(layers.GlobalAveragePooling1D())
+model.add(Dense(1024, activation = 'relu'))
+model.add(Dropout(0.1))
+#model.add(Dense(2048, activation = 'relu'))
+#model.add(layers.Dropout(0.1))
+model.add(Dense(1024, activation = 'relu'))
+model.add(Dropout(0.1))
+model.add(Dense(512, activation = 'relu'))
+model.add(Dense(1, activation = 'sigmoid'))
+#compile the model
+model.compile(loss='binary_crossentropy',
+              optimizer=tf.keras.optimizers.Adam(learning_rate=0.01),
+              metrics=['accuracy'])
+
+
+# In[22]:
+
+
+Callback_Stop_Early = tf.keras.callbacks.EarlyStopping(monitor="loss",patience=3)
+
+
+# In[23]:
+
+
+model_vgg19_history = model.fit(features_train, labels_train, epochs = 100, validation_split = 0.2)
+
+
+# In[24]:
+
+
+import seaborn as sns
+
+
+# In[25]:
+
+
+from numpy import array
+predict_labels = model.predict(features_test)
+predict_labels = array(predict_labels, dtype = 'int32')
+predict_labels = predict_labels.flatten()
+
+
+# In[26]:
+
+
+cm = confusion_matrix(labels_test,predict_labels)
+
+
+# In[27]:
+
+
+#Plot the confusion matrix.
+sns_heatmap = sns.heatmap(cm,
+            annot=True,
+            fmt='g',
+            xticklabels=['Non Violence','Violence'],
+            yticklabels=['Non Vaolence','Violence'])
+plt.ylabel('Prediction',fontsize=13)
+plt.xlabel('Actual',fontsize=13)
+plt.title('Confusion Matrix',fontsize=17)
+fig = sns_heatmap.get_figure()
+fig.savefig(cm_matrix, dpi=300)
+plt.show()
+
+
+# In[28]:
+
+
+# Finding precision and recall
+accuracy = accuracy_score(labels_test, predict_labels)
+print("Accuracy   :", accuracy)
+precision = precision_score(labels_test, predict_labels)
+print("Precision :", precision)
+recall = recall_score(labels_test, predict_labels)
+print("Recall    :", recall)
+F1_score = f1_score(labels_test, predict_labels)
+print("F1-score  :", F1_score)
+
+
+# In[29]:
+
+
+def plot_metric(model_training_history, metric_name_1, metric_name_2, plot_name):
+    
+    metric_value_1 = model_training_history.history[metric_name_1]
+    metric_value_2 = model_training_history.history[metric_name_2]
+    
+    # Get the Epochs Count
+    epochs = range(len(metric_value_1))
+ 
+    plt.plot(epochs, metric_value_1, 'blue', label = metric_name_1)
+    plt.plot(epochs, metric_value_2, 'orange', label = metric_name_2)
+ 
+    plt.title(str(plot_name))
+    plt.xlabel("#Epoch")
+    plt.ylabel("Accuracy")
+ 
+    plt.legend()
+    plt.savefig(metric_name_1+'_'+graph, dpi=300)
+
+
+# In[30]:
+
+
+plot_metric(model_vgg19_history, 'loss', 'val_loss', 'Training Loss vs Validation Loss')
+
+
+# In[31]:
+
+
+plot_metric(model_vgg19_history, 'accuracy', 'val_accuracy', 'Training accuracy vs Validation accuracy')
+
+
+# In[32]:
+
+
+from sklearn.metrics import roc_curve, roc_auc_score
+auc = roc_auc_score(labels_test,predict_labels)
+fpr, tpr, _ = roc_curve(labels_test,predict_labels)
+#plt.figure(figsize=(12, 8))
+plt.plot(fpr, tpr, linestyle='--', label='(AUC = %0.3f)' % auc)
+plt.title('ROC Plot for vgg19 with Movie dataset')
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.legend()  
+#plt.show()
+plt.savefig('Roc_Auc_vgg19_' + ds, dpi=300)
+
+
+# In[33]:
+
+
+# save the vgg19 classification model as a pickle file
+import pickle
+with open(model_pkl_file, 'wb') as file:  
+    pickle.dump(model, file)
+
+
+# In[34]:
+
+
+#from keras.utils.vis_utils import plot_model
+from keras.utils import plot_model
+print(model.summary())
+plot_model(model, to_file = model_arch, show_shapes=True, show_layer_names=True)
+
+
+# In[ ]:
+
+
+
+
